@@ -8,5 +8,5 @@
   "host_permissions": ["https://port-0-chrome-remote-extension-iad5e2alq4tgcen.sel4.cloudtype.app/*"],
   "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   "background": { "service_worker": "background.js" },
-  "action": { "default_title": "Chrome Remote", "default_popup": "popup.html" }
+  "action": { "default_title": "Chrome Remote" }
 }
