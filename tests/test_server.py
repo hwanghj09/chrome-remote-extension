@@ -21,7 +21,7 @@ def test_register_and_targeted_commands(tmp_path):
             online = client.get('/api/admin/devices').json()
             assert online[0]['online'] is True
             bad_url = client.post(f'/api/admin/devices/{device}/commands',
-                                  json={'action': 'open_tab', 'params': {'url': 'https://not-allowed.example'}})
+                                  json={'action': 'open_tab', 'params': {'url': 'ftp://example.com/'}})
             assert bad_url.status_code == 422
             bad_action = client.post(f'/api/admin/devices/{device}/commands',
                                      json={'action': 'run_shell', 'params': {}})

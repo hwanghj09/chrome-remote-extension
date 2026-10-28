@@ -40,7 +40,6 @@ GitHub의 `main` 브랜치를 Cloudtype **FastAPI** 템플릿으로 배포하세
 | Health check | `/health` |
 | Workers / replicas | **1** (SQLite와 메모리 연결 관리자 사용) |
 | Environment variable | `DATABASE_PATH=/data/devices.db` (영구 볼륨 마운트한 경우에만) |
-| Environment variable | `ALLOWED_NAV_HOSTS=example.com,port-0-chrome-remote-extension-iad5e2alq4tgcen.sel4.cloudtype.app` |
 
 **Cloudtype 유의사항**: Cloudtype의 배포 저장소가 임시 파일시스템이면 재배포 시 SQLite 기기 등록 정보 및 1~100 번호 사용 기록이 모두 초기화됩니다. 연속 사용 시 **영구 볼륨**을 만들고 `DATABASE_PATH`를 실제 마운트 경로로 지정하세요. Cloudtype 설정 또는 기존 배포가 자동 갱신되었는지는 GitHub 업로드만으로 보장할 수 없으며 Cloudtype 재배포 상태를 확인해야 합니다.
 
@@ -82,7 +81,7 @@ uvicorn main:app --host 127.0.0.1 --port 8000
 - 창: `list_windows`, `new_window`, `focus_window`, `close_window`
 - 알림: `notify`
 
-`open_tab`, `navigate_tab`, `new_window`에 지정하는 URL은 환경변수 `ALLOWED_NAV_HOSTS`에 명시한 도메인이어야 합니다. 목록 외 도메인, 브라우저 내부 URL 및 임의 코드 명령은 거절됩니다. 탭 목록은 ID, 활성화, 고정, 음소거 정보만 제공하고 URL/제목을 서버로 전송하지 않습니다.
+`open_tab`, `navigate_tab`, `new_window`에 지정하는 URL은 일반 http/https 주소면 모두 허용됩니다. 브라우저 내부 URL(chrome:// 등)과 임의 코드 명령은 거절됩니다. 탭 목록은 ID, 활성화, 고정, 음소거 정보만 제공하고 URL/제목을 서버로 전송하지 않습니다.
 
 ### 터미널에서 기기 제어 (선택)
 

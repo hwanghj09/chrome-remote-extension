@@ -55,11 +55,6 @@ class CommandRequest(BaseModel):
 def create_app(*, admin_key: str | None = None, database_path: str | None = None) -> FastAPI:
     # admin_key is accepted for backward compatibility but no longer required.
     db_path = Path(database_path or os.getenv('DATABASE_PATH', 'data/devices.db'))
-    allowed_hosts = {
-        host.strip().lower()
-        for host in os.getenv('ALLOWED_NAV_HOSTS', 'example.com').split(',')
-        if host.strip()
-    }
     connections: dict[str, WebSocket] = {}
 
     def db() -> sqlite3.Connection:
@@ -132,8 +127,8 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
                 raise HTTPException(422, 'Invalid URL')
             parsed = urlsplit(p['url'])
             if (parsed.scheme not in ('http', 'https') or not parsed.hostname or
-                    parsed.username or parsed.password or parsed.hostname.lower() not in allowed_hosts):
-                raise HTTPException(422, 'URL hostname not in ALLOWED_NAV_HOSTS')
+                    parsed.username or parsed.password):
+                raise HTTPException(422, 'URL must be a normal http/https address')
         for key in ('title', 'message'):
             if key in p and (not isinstance(p[key], str) or not 1 <= len(p[key]) <= 200):
                 raise HTTPException(422, f'{key} must contain 1–200 characters')
