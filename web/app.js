@@ -16,7 +16,6 @@ const FIELDS = {
   close_window: [['window_id','창 ID','number','']],
   notify: [['title','제목','text','안내'],['message','내용','text','테스트 알림입니다.']]
 };
-let adminKey = '';
 let devices = [];
 let selected = null;
 let polling = false;
@@ -32,16 +31,12 @@ async function api(path, options={}) {
   const res = await fetch(path, {
     ...options,
     cache: 'no-store',
-    headers: {...(options.body ? {'Content-Type':'application/json'} : {}), 'X-Admin-Key': adminKey, ...(options.headers || {})}
+    headers: {...(options.body ? {'Content-Type':'application/json'} : {}), ...(options.headers || {})}
   });
   let payload;
   try { payload = await res.json(); } catch { payload = {}; }
   if (!res.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : `요청 실패 (HTTP ${res.status})`);
   return payload;
-}
-function showConsole(visible) {
-  $('authPanel').hidden = visible;
-  $('consolePanel').hidden = !visible;
 }
 function renderDevices() {
   $('totalDevices').textContent = String(devices.length);
@@ -72,7 +67,7 @@ function renderSelection() {
   $('revokeDevice').disabled=!d;
 }
 async function refresh() {
-  if (!adminKey || polling) return;
+  if (polling) return;
   polling=true;
   try {
     devices=await api('/api/admin/devices');
@@ -122,13 +117,6 @@ async function command(action,params) {
     toast('결과 수신이 지연되고 있습니다. 명령은 전송되었을 수 있습니다.');
   } catch(e) { $('resultBox').textContent='오류: '+e.message;toast(e.message); }
 }
-$('loginForm').addEventListener('submit',async e=>{
-  e.preventDefault(); const key=$('adminKey').value.trim();if(!key)return;
-  adminKey=key;
-  try {devices=await api('/api/admin/devices');$('adminKey').value='';showConsole(true);renderDevices();}
-  catch(e){adminKey='';toast('인증 실패: '+e.message);}
-});
-$('logout').addEventListener('click',()=>{adminKey='';selected=null;devices=[];showConsole(false);$('resultBox').textContent='명령을 실행하면 여기에 결과가 표시됩니다.';});
 $('refreshDevices').addEventListener('click',refresh);
 $('action').addEventListener('change',renderFields);
 $('commandForm').addEventListener('submit',e=>{
@@ -144,18 +132,6 @@ $('commandForm').addEventListener('submit',e=>{
   command(action,params);
 });
 document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>command(b.dataset.action,{})));
-$('enrollForm').addEventListener('submit',async e=>{
-  e.preventDefault();try{
-    const name=$('enrollName').value.trim();if(!name)throw new Error('기기 이름을 입력하세요.');
-    const data=await api('/api/admin/enrollments',{method:'POST',body:JSON.stringify({name})});
-    $('enrollmentCode').textContent=data.pairing_code;$('enrollmentOutput').hidden=false;
-    toast('등록 코드를 발급했습니다. 승인된 기기에서 입력하세요.');
-  }catch(error){toast(error.message);}
-});
-$('copyCode').addEventListener('click',async()=>{
-  try {await navigator.clipboard.writeText($('enrollmentCode').textContent);toast('코드를 복사했습니다.');}
-  catch {toast('복사할 수 없습니다. 직접 선택해 복사하세요.');}
-});
 $('revokeDevice').addEventListener('click',async()=>{
   const d=devices.find(x=>x.device_id===selected);if(!d)return;
   if(!confirm(`기기 #${d.device_id} (${d.name})의 등록을 폐기할까요? 재등록하려면 새 코드가 필요합니다.`))return;
@@ -163,5 +139,5 @@ $('revokeDevice').addEventListener('click',async()=>{
   catch(e){toast(e.message);}
 });
 $('clearResult').addEventListener('click',()=>{$('resultBox').textContent='명령을 실행하면 여기에 결과가 표시됩니다.';});
-renderFields();renderSelection();
-setInterval(()=>{if(adminKey)refresh();},5000);
+renderFields();renderSelection();refresh();
+setInterval(refresh,5000);

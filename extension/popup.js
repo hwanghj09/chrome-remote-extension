@@ -31,9 +31,8 @@ $('pair').addEventListener('click', async () => {
     const permission = await chrome.permissions.request({ origins: [pattern] });
     if (!permission) throw new Error('서버 접근 권한이 허용되지 않았습니다.');
 
-    const response = await fetch(`${origin}/api/pair`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: $('code').value.trim(), device_name: $('name').value.trim() })
+    const response = await fetch(`${origin}/api/register`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || '등록에 실패했습니다.');

@@ -10,12 +10,11 @@ KEY = os.environ.get('ADMIN_API_KEY')
 
 
 def call(method, path, payload=None):
-    if not KEY:
-        raise SystemExit('Set ADMIN_API_KEY before running admin_cli.py')
     body = json.dumps(payload).encode('utf-8') if payload is not None else None
-    request = urllib.request.Request(
-        BASE + path, data=body, method=method,
-        headers={'X-Admin-Key': KEY, 'Content-Type': 'application/json'})
+    headers = {'Content-Type': 'application/json'}
+    if KEY:
+        headers['X-Admin-Key'] = KEY
+    request = urllib.request.Request(BASE + path, data=body, method=method, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             print(json.dumps(json.load(response), indent=2, ensure_ascii=False))
@@ -26,8 +25,6 @@ def call(method, path, payload=None):
 
 parser = argparse.ArgumentParser()
 sub = parser.add_subparsers(dest='cmd', required=True)
-enroll = sub.add_parser('enroll')
-enroll.add_argument('name')
 sub.add_parser('devices')
 send = sub.add_parser('send')
 send.add_argument('device_id')
@@ -39,9 +36,7 @@ revoke = sub.add_parser('revoke')
 revoke.add_argument('device_id')
 args = parser.parse_args()
 
-if args.cmd == 'enroll':
-    call('POST', '/api/admin/enrollments', {'name': args.name})
-elif args.cmd == 'devices':
+if args.cmd == 'devices':
     call('GET', '/api/admin/devices')
 elif args.cmd == 'send':
     call('POST', f'/api/admin/devices/{args.device_id}/commands',

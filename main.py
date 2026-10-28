@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -47,23 +47,13 @@ def digest(value: str) -> str:
     return hashlib.sha256(value.encode('utf-8')).hexdigest()
 
 
-class EnrollmentRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=60)
-    ttl_seconds: int = Field(default=300, ge=30, le=3600)
-
-
-class PairRequest(BaseModel):
-    code: str = Field(min_length=8, max_length=128)
-    device_name: str = Field(min_length=1, max_length=60)
-
-
 class CommandRequest(BaseModel):
     action: str
     params: dict = Field(default_factory=dict)
 
 
 def create_app(*, admin_key: str | None = None, database_path: str | None = None) -> FastAPI:
-    admin_secret = admin_key if admin_key is not None else os.getenv('ADMIN_API_KEY', '')
+    # admin_key is accepted for backward compatibility but no longer required.
     db_path = Path(database_path or os.getenv('DATABASE_PATH', 'data/devices.db'))
     allowed_hosts = {
         host.strip().lower()
@@ -79,8 +69,6 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        if not admin_secret or len(admin_secret) < 24:
-            raise RuntimeError('Set a strong ADMIN_API_KEY (24+ characters).')
         db_path.parent.mkdir(parents=True, exist_ok=True)
         with db() as conn:
             conn.executescript('''
@@ -90,11 +78,6 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
                     token_hash TEXT NOT NULL,
                     created_at INTEGER NOT NULL,
                     last_seen INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS enrollments (
-                    code_hash TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    expires_at INTEGER NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS assigned_ids (
                     device_id TEXT PRIMARY KEY
@@ -129,10 +112,6 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
         response.headers['Referrer-Policy'] = 'no-referrer'
         return response
 
-    def require_admin(x_admin_key: str | None = Header(default=None)):
-        if not x_admin_key or not secrets.compare_digest(x_admin_key, admin_secret):
-            raise HTTPException(status_code=401, detail='Invalid administrator key')
-
     def validate_command(command: CommandRequest):
         expected = COMMAND_PARAMS.get(command.action)
         if expected is None:
@@ -163,26 +142,11 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
     def health():
         return {'ok': True}
 
-    @app.post('/api/admin/enrollments', dependencies=[Depends(require_admin)])
-    def create_enrollment(payload: EnrollmentRequest):
-        code = secrets.token_urlsafe(16)
-        expires = int(time.time()) + payload.ttl_seconds
-        with db() as conn:
-            conn.execute('DELETE FROM enrollments WHERE expires_at < ?', (int(time.time()),))
-            conn.execute('INSERT INTO enrollments VALUES (?, ?, ?)',
-                         (digest(code), payload.name, expires))
-        return {'pairing_code': code, 'expires_at': expires}
-
-    @app.post('/api/pair')
-    def pair_device(payload: PairRequest):
+    @app.post('/api/register')
+    def register_device():
+        # No pairing code and no device name: a device auto-registers on first connect.
         with db() as conn:
             conn.execute('BEGIN IMMEDIATE')  # serialize concurrent allocations across requests
-            # Single-use pairing code; the DELETE and INSERT share one transaction.
-            # Atomic one-time consumption prevents code reuse under concurrent requests.
-            consumed = conn.execute('DELETE FROM enrollments WHERE code_hash=? AND expires_at>=?',
-                                    (digest(payload.code), int(time.time()))).rowcount
-            if not consumed:
-                raise HTTPException(403, 'Invalid or expired pairing code')
             # Keep IDs small but unique, even across revocations. The DB is the authority.
             # The write transaction is exclusive during allocation to prevent collisions.
             already_assigned = {
@@ -200,10 +164,10 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
             now = int(time.time())
             conn.execute('INSERT INTO assigned_ids (device_id) VALUES (?)', (device_id,))
             conn.execute('INSERT INTO devices VALUES (?, ?, ?, ?, ?)',
-                         (device_id, payload.device_name, digest(token), now, now))
+                         (device_id, f'device-{device_id}', digest(token), now, now))
         return {'device_id': device_id, 'device_token': token}
 
-    @app.get('/api/admin/devices', dependencies=[Depends(require_admin)])
+    @app.get('/api/admin/devices')
     def list_devices():
         with db() as conn:
             records = conn.execute('SELECT device_id, name, created_at, last_seen FROM devices ORDER BY created_at DESC').fetchall()
@@ -211,7 +175,7 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
                  'online': x['device_id'] in connections,
                  'created_at': x['created_at'], 'last_seen': x['last_seen']} for x in records]
 
-    @app.delete('/api/admin/devices/{device_id}', dependencies=[Depends(require_admin)])
+    @app.delete('/api/admin/devices/{device_id}')
     async def revoke_device(device_id: str):
         with db() as conn:
             count = conn.execute('DELETE FROM devices WHERE device_id=?', (device_id,)).rowcount
@@ -222,7 +186,7 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
             await socket.close(code=1008, reason='Device revoked')
         return {'revoked': True}
 
-    @app.post('/api/admin/devices/{device_id}/commands', dependencies=[Depends(require_admin)])
+    @app.post('/api/admin/devices/{device_id}/commands')
     async def send_command(device_id: str, command: CommandRequest):
         validate_command(command)
         with db() as conn:
@@ -248,7 +212,7 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
             conn.execute("UPDATE commands SET status='sent' WHERE command_id=? AND status='queued'", (command_id,))
         return {'command_id': command_id, 'status': 'sent'}
 
-    @app.get('/api/admin/commands/{command_id}', dependencies=[Depends(require_admin)])
+    @app.get('/api/admin/commands/{command_id}')
     def get_command(command_id: str):
         with db() as conn:
             row = conn.execute('SELECT * FROM commands WHERE command_id=?', (command_id,)).fetchone()

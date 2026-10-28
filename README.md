@@ -3,11 +3,11 @@
 학교 관리자의 승인을 받은 크롬/크롬북을 원격으로 제어하는 **FastAPI + WebSocket + Chrome Extension (MV3)** 예제입니다.
 
 - Cloudtype 주소: https://port-0-chrome-remote-extension-iad5e2alq4tgcen.sel4.cloudtype.app/
-- `/`: 웹 관리자 대시보드 (관리자 키 인증 후 기기 목록, 등록 코드 생성, 개별 기기 명령, 결과 조회 및 기기 등록 폐기)
+- `/`: 웹 관리자 대시보드 (비밀번호 없이 접속, 기기 목록, 개별 기기 명령, 결과 조회 및 기기 등록 폐기)
 - `/health`: 서버 상태 확인
 - `/docs`: Swagger API 문서
 - **기기 ID: 1~100 중 중복되지 않는 랜덤 숫자**. 등록 폐기한 번호도 재사용하지 않음. 100개 소진 시 새 등록은 HTTP 409로 거절. 번호를 초기화하려면 데이터베이스 관리자가 명시적으로 초기화해야 함.
-- 기기는 사용자가 **최초 1회 등록 코드를 입력하여 동의**해야 연결됩니다. 이후 관리자가 명령할 때마다 재승인을 요구하지 않으며 사용자는 언제든 일시 정지/등록 해제할 수 있습니다.
+- 기기는 **확장 프로그램에서 연결하면 등록 코드 없이 자동으로 서버에 등록**됩니다. 사용자는 언제든 일시 정지/등록 해제할 수 있습니다.
 - 관리자 권한이 있는 기기에서만 사용하세요. 학교 관리 정책을 우회하거나 동의를 생략한 무단 제어 기능은 제공하지 않습니다.
 
 ## 파일 구조
@@ -39,11 +39,8 @@ GitHub의 `main` 브랜치를 Cloudtype **FastAPI** 템플릿으로 배포하세
 | Port | `8000` |
 | Health check | `/health` |
 | Workers / replicas | **1** (SQLite와 메모리 연결 관리자 사용) |
-| Environment secret | `ADMIN_API_KEY` = 24자 이상의 강력한 랜덤 키 |
 | Environment variable | `DATABASE_PATH=/data/devices.db` (영구 볼륨 마운트한 경우에만) |
 | Environment variable | `ALLOWED_NAV_HOSTS=example.com,port-0-chrome-remote-extension-iad5e2alq4tgcen.sel4.cloudtype.app` |
-
-키 발급 예시: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
 
 **Cloudtype 유의사항**: Cloudtype의 배포 저장소가 임시 파일시스템이면 재배포 시 SQLite 기기 등록 정보 및 1~100 번호 사용 기록이 모두 초기화됩니다. 연속 사용 시 **영구 볼륨**을 만들고 `DATABASE_PATH`를 실제 마운트 경로로 지정하세요. Cloudtype 설정 또는 기존 배포가 자동 갱신되었는지는 GitHub 업로드만으로 보장할 수 없으며 Cloudtype 재배포 상태를 확인해야 합니다.
 
@@ -52,30 +49,26 @@ Python 3.11 이상으로 로컬에서 실행한다면:
 ```bash
 pip install -r requirements.txt
 cp .env.example .env
-# .env 의 ADMIN_API_KEY 를 강력한 키로 교체한 다음
 uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 ## 웹 관리자 콘솔 사용법
 
-1. Cloudtype 서버의 `/` 주소에 접속합니다.
-2. **`ADMIN_API_KEY`**를 입력합니다. 키는 브라우저 메모리에만 저장하며 저장소/확장 프로그램에 포함하면 안 됩니다.
-3. **등록 코드 발급**에서 기기 이름을 입력하여 일회용 코드를 받습니다 (5분 유효).
-4. 학교 관리자가 설치를 허용한 크롬북에서 확장 프로그램을 열고, 미리 입력된 Cloudtype 서버 주소와 기기 이름, 코드를 확인해 **연결 및 원격 제어 동의**를 누릅니다.
-5. 등록되면 **1~100 중 사용되지 않은 랜덤 번호**를 받습니다. 관리자 웹에서 번호를 눌러 해당 기기만 선택합니다.
-6. 탭/창 제어, 브라우저 알림, 상태 조회 등 명령을 내리고 실행 결과를 확인합니다.
-7. 사용자는 확장 프로그램 팝업에서 일시 정지하거나 등록 해제할 수 있고, 관리자도 기기 등록을 폐기할 수 있습니다.
+1. Cloudtype 서버의 `/` 주소에 접속합니다. 비밀번호 입력 없이 바로 콘솔이 열립니다.
+2. 학교 관리자가 설치를 허용한 크롬북에서 확장 프로그램을 열고, 미리 입력된 Cloudtype 서버 주소를 확인해 **연결 및 원격 제어 동의**를 누릅니다.
+3. 연결하면 등록 코드 없이 **1~100 중 사용되지 않은 랜덤 번호**를 자동으로 받고 관리자 콘솔 목록에 나타납니다. 번호를 눌러 해당 기기만 선택합니다.
+4. 탭/창 제어, 브라우저 알림, 상태 조회 등 명령을 내리고 실행 결과를 확인합니다.
+5. 사용자는 확장 프로그램 팝업에서 일시 정지하거나 등록 해제할 수 있고, 관리자도 기기 등록을 폐기할 수 있습니다.
 
 **관리형 크롬북**: 학교 IT 관리자의 설치/권한 승인과 네트워크 허용이 필요합니다. 기기별 숫자는 식별자일 뿐이며, 숫자를 안다고 제어할 수는 없습니다. 별도의 기기 토큰과 관리자 키로 인증합니다.
 
 ## API
 
-`/api/admin/*` 호출은 `X-Admin-Key` 헤더가 필요합니다. WebSocket 연결에는 기기별 토큰을 별도로 사용합니다.
+`/api/admin/*` 호출은 비밀번호 없이 사용합니다. WebSocket 연결에는 기기별 토큰을 별도로 사용합니다.
 
 | HTTP | URL | 설명 |
 |---|---|---|
-| POST | `/api/admin/enrollments` | 기기 등록 코드 발급 |
-| POST | `/api/pair` | 사용자가 코드 입력 및 동의 후 기기 등록 |
+| POST | `/api/register` | 확장 프로그램이 연결 시 자동 등록 (코드/이름 불필요) |
 | GET | `/api/admin/devices` | 기기 목록 / 접속 상태 |
 | DELETE | `/api/admin/devices/{device_id}` | 특정 기기 등록 폐기 |
 | POST | `/api/admin/devices/{device_id}/commands` | **특정 기기에만** 명령 전달 |
@@ -95,9 +88,7 @@ uvicorn main:app --host 127.0.0.1 --port 8000
 
 ```bash
 export SERVER_URL="https://port-0-chrome-remote-extension-iad5e2alq4tgcen.sel4.cloudtype.app"
-export ADMIN_API_KEY="<Cloudtype 관리자 비밀키>"
 python scripts/admin_cli.py devices
-python scripts/admin_cli.py enroll "Chromebook A"
 python scripts/admin_cli.py send 37 open_tab '{"url":"https://example.com/"}'
 ```
 
