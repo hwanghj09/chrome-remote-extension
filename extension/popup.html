@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chrome Remote</title>
+  <style>
+    body { font: 13px system-ui, sans-serif; width: 300px; padding: 16px; margin: 0; color: #111827; }
+    h1 { font-size: 18px; margin: 0 0 6px; }
+    p { color: #4b5563; line-height: 1.55; }
+    label { display: block; margin: 12px 0 3px; font-weight: 600; }
+    input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
+    button { width: 100%; padding: 9px; margin-top: 12px; border: 0; border-radius: 6px; cursor: pointer; background: #0f766e; color: white; }
+    button.secondary { background: #334155; }
+    code { word-break: break-all; }
+    #message { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Chrome Remote</h1>
+  <p>승인된 관리자 명령으로 탭과 창을 제어합니다. 언제든 일시 정지할 수 있습니다.</p>
+  <section id="pairSection">
+    <label for="server">서버 주소</label>
+    <input id="server" placeholder="https://api.example.com" value="http://127.0.0.1:8000" />
+    <label for="name">기기 이름</label>
+    <input id="name" maxlength="60" placeholder="chromebook-01" />
+    <label for="code">1회용 등록 코드</label>
+    <input id="code" placeholder="관리자가 발급한 코드" />
+    <button id="pair">연결 및 원격 제어 동의</button>
+  </section>
+  <section id="pairedSection" hidden>
+    <p><strong>등록된 기기:</strong> <code id="deviceId"></code></p>
+    <button id="toggle"></button>
+    <button id="forget" class="secondary">이 기기에서 등록 해제</button>
+  </section>
+  <p id="message" role="status"></p>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Chrome Remote (Opt-in)",
+  "description": "Manage authorized Chrome tabs and windows with a paired server. User can pause at any time.",
+  "version": "1.0.0",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "alarms", "notifications"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Chrome Remote", "default_popup": "popup.html" }
+}
