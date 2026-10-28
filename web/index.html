@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Chrome Remote | 관리자 콘솔</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-icon">◈</span><div><strong>CHROME REMOTE</strong><small>ADMIN CONSOLE · 승인된 기기 전용</small></div></div>
+      <span class="server-tag"><span class="pulse"></span> Cloudtype · FastAPI</span>
+    </header>
+    <main>
+      <section id="authPanel" class="login card">
+        <div class="eyebrow">AUTHENTICATION</div>
+        <h1>관리자 로그인</h1>
+        <p>Cloudtype에 설정한 <code>ADMIN_API_KEY</code>를 입력하세요. 키는 브라우저 메모리에만 보관되며 새로고침하면 사라집니다.</p>
+        <form id="loginForm">
+          <label for="adminKey">관리자 API 키</label>
+          <input id="adminKey" type="password" autocomplete="off" minlength="24" required placeholder="환경변수 ADMIN_API_KEY">
+          <button class="primary" type="submit">콘솔 열기</button>
+        </form>
+        <p class="fine-print">승인된 기기만 제어 가능합니다. 페이지 접근만으로 크롬북이 등록되거나 조작되지 않습니다.</p>
+      </section>
+
+      <section id="consolePanel" hidden>
+        <div class="heading"><div><div class="eyebrow">DEVICE MANAGEMENT</div><h1>원격 브라우저 콘솔</h1><p>등록된 크롬북을 선택하고 허용된 탭·창 명령을 전송합니다.</p></div><div class="heading-actions"><button id="refreshDevices" class="secondary" type="button">새로고침</button><button id="logout" class="quiet" type="button">로그아웃</button></div></div>
+        <div class="stats"><div class="stat card"><span>등록된 기기</span><strong id="totalDevices">0</strong></div><div class="stat card"><span>온라인</span><strong id="onlineDevices">0</strong></div><div class="stat card"><span>선택된 기기</span><strong id="selectedDeviceNumber">—</strong></div></div>
+        <div class="columns">
+          <section class="card devices-panel">
+            <div class="panel-heading"><div><h2>기기 목록</h2><p>기기 번호는 중복 없는 1~100번</p></div></div>
+            <div id="devices" class="devices-list"><p class="muted">연결된 기기가 없습니다.</p></div>
+            <div class="panel-divider"></div>
+            <h3>신규 기기 등록 코드</h3>
+            <form id="enrollForm" class="stacked">
+              <label for="enrollName">기기 이름</label>
+              <input id="enrollName" maxlength="60" placeholder="예: 크롬북 1반" required>
+              <button type="submit" class="secondary">1회용 등록 코드 발급</button>
+            </form>
+            <div id="enrollmentOutput" class="code-output" hidden><span>5분간 유효한 등록 코드</span><code id="enrollmentCode"></code><button id="copyCode" type="button" class="quiet">복사</button></div>
+          </section>
+          <section class="card control-panel">
+            <div class="panel-heading"><div><h2>기기 제어</h2><p id="controlSubtitle">왼쪽에서 크롬북을 선택하세요.</p></div><span id="targetBadge" class="target-tag">미선택</span></div>
+            <div class="quick-actions"><button data-action="get_status" type="button">상태 조회</button><button data-action="list_tabs" type="button">탭 목록</button><button data-action="list_windows" type="button">창 목록</button></div>
+            <form id="commandForm" class="stacked">
+              <label for="action">명령</label>
+              <select id="action" required>
+                <optgroup label="탭">
+                  <option value="open_tab">새 탭 열기</option>
+                  <option value="navigate_tab">탭 주소 이동</option>
+                  <option value="close_tab">탭 닫기</option>
+                  <option value="activate_tab">탭 활성화</option>
+                  <option value="reload_tab">탭 새로고침</option>
+                  <option value="duplicate_tab">탭 복제</option>
+                  <option value="pin_tab">탭 고정 / 해제</option>
+                  <option value="mute_tab">탭 음소거 / 해제</option>
+                  <option value="set_zoom">탭 확대 / 축소</option>
+                </optgroup>
+                <optgroup label="창">
+                  <option value="new_window">새 창 열기</option>
+                  <option value="focus_window">창 활성화</option>
+                  <option value="close_window">창 닫기</option>
+                </optgroup>
+                <optgroup label="알림"><option value="notify">알림 표시</option></optgroup>
+              </select>
+              <div id="fields" class="stacked"></div>
+              <button class="primary" id="sendCommand" type="submit">선택 기기에 명령 보내기</button>
+            </form>
+            <div class="panel-divider"></div>
+            <div class="result-heading"><h3>최근 실행 결과</h3><button id="clearResult" type="button" class="quiet">지우기</button></div>
+            <pre id="resultBox" class="result-box">명령을 실행하면 여기에 결과가 표시됩니다.</pre>
+            <div class="danger-zone"><button id="revokeDevice" type="button" class="danger">선택 기기 등록 폐기</button></div>
+          </section>
+        </div>
+        <p class="disclaimer">ChromeOS 전체 원격 데스크톱이 아닙니다. Chrome 확장 프로그램이 허용하는 탭·창 기능만 제어하며, 학교 관리 정책을 우회하지 않습니다.</p>
+      </section>
+    </main>
+    <footer>Chrome Remote · FastAPI + WebSocket · 권한이 있는 기기에서만 사용</footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

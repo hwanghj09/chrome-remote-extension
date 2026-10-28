@@ -1,130 +1,122 @@
-# Chrome Remote Extension
+# Chrome Remote · Web Console
 
-승인된 크롬/크롬북에서만 작동하는 **FastAPI + WebSocket + Manifest V3** 원격 브라우저 제어 예제입니다. 기기별 등록 코드, 개별 인증 토큰, 관리자 인증, 일시 정지, 개별 명령 실행 결과 조회를 제공합니다.
+학교 관리자의 승인을 받은 크롬/크롬북을 원격으로 제어하는 **FastAPI + WebSocket + Chrome Extension (MV3)** 예제입니다.
 
-> **학교 관리형 크롬북:** 학교 IT 관리자의 승인을 받아 설치·운영하세요. 조직 정책이 확장 프로그램 설치 또는 특정 기능을 금지하면 사용할 수 없으며, 이 프로젝트에는 정책 우회 기능이 없습니다. ChromeOS 전체 원격 데스크톱 제어 도구가 아닙니다.
+- Cloudtype 주소: https://port-0-chrome-remote-extension-iad5e2alq4tgcen.sel4.cloudtype.app/
+- `/`: 웹 관리자 대시보드 (관리자 키 인증 후 기기 목록, 등록 코드 생성, 개별 기기 명령, 결과 조회 및 기기 등록 폐기)
+- `/health`: 서버 상태 확인
+- `/docs`: Swagger API 문서
+- **기기 ID: 1~100 중 중복되지 않는 랜덤 숫자**. 등록 폐기한 번호도 재사용하지 않음. 100개 소진 시 새 등록은 HTTP 409로 거절. 번호를 초기화하려면 데이터베이스 관리자가 명시적으로 초기화해야 함.
+- 기기는 사용자가 **최초 1회 등록 코드를 입력하여 동의**해야 연결됩니다. 이후 관리자가 명령할 때마다 재승인을 요구하지 않으며 사용자는 언제든 일시 정지/등록 해제할 수 있습니다.
+- 관리자 권한이 있는 기기에서만 사용하세요. 학교 관리 정책을 우회하거나 동의를 생략한 무단 제어 기능은 제공하지 않습니다.
 
-## 프로젝트 구조
+## 파일 구조
 
 ```text
-server/main.py           # FastAPI, SQLite, 기기 등록 및 WebSocket
-server/requirements.txt
-server/.env.example       # 비밀키 예시 (실제 .env는 Git에 올리지 않음)
-extension/manifest.json
-extension/background.js   # 허용된 명령만 실행
+main.py                  # FastAPI 애플리케이션 (저장소 루트)
+requirements.txt         # Cloudtype 자동 설치용 의존성
+.env.example             # 환경변수 예시 (실제 키는 Cloudtype Secrets)
+web/index.html           # 관리자 콘솔
+web/styles.css
+web/app.js
+extension/manifest.json  # Chrome 확장 프로그램
+extension/background.js  # 기기 연결 및 명령 처리
 extension/popup.html
-extension/popup.js        # 명시적 등록, 일시 정지
-extension/icons/icon.png
-scripts/admin_cli.py      # 등록/명령 전송 CLI
+extension/popup.js       # 기기 등록, 일시 정지, 등록 해제
+scripts/admin_cli.py     # 터미널 관리자 도구 (선택)
 tests/test_server.py
 ```
 
-## 1. 서버 실행
+## Cloudtype 배포 설정
 
-Python 3.11 이상에서 저장소 루트 기준:
+GitHub의 `main` 브랜치를 Cloudtype **FastAPI** 템플릿으로 배포하세요. 기존에 하위 디렉터리로 되어 있던 배포 루트 경로 설정은 해제합니다.
+
+| 설정 | 값 |
+|---|---|
+| Source directory | 저장소 최상단 (root) |
+| Install command | `pip install -r requirements.txt` |
+| Start command | `uvicorn main:app --host=0.0.0.0 --port=8000` |
+| Port | `8000` |
+| Health check | `/health` |
+| Workers / replicas | **1** (SQLite와 메모리 연결 관리자 사용) |
+| Environment secret | `ADMIN_API_KEY` = 24자 이상의 강력한 랜덤 키 |
+| Environment variable | `DATABASE_PATH=/data/devices.db` (영구 볼륨 마운트한 경우에만) |
+| Environment variable | `ALLOWED_NAV_HOSTS=example.com,port-0-chrome-remote-extension-iad5e2alq4tgcen.sel4.cloudtype.app` |
+
+키 발급 예시: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+
+**Cloudtype 유의사항**: Cloudtype의 배포 저장소가 임시 파일시스템이면 재배포 시 SQLite 기기 등록 정보 및 1~100 번호 사용 기록이 모두 초기화됩니다. 연속 사용 시 **영구 볼륨**을 만들고 `DATABASE_PATH`를 실제 마운트 경로로 지정하세요. Cloudtype 설정 또는 기존 배포가 자동 갱신되었는지는 GitHub 업로드만으로 보장할 수 없으며 Cloudtype 재배포 상태를 확인해야 합니다.
+
+Python 3.11 이상으로 로컬에서 실행한다면:
 
 ```bash
-pip install -r server/requirements.txt
-cp server/.env.example server/.env
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-# 출력된 랜덤 값을 server/.env 의 ADMIN_API_KEY 에 입력하세요.
-uvicorn server.main:app --host 127.0.0.1 --port 8000
+pip install -r requirements.txt
+cp .env.example .env
+# .env 의 ADMIN_API_KEY 를 강력한 키로 교체한 다음
+uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-Windows PowerShell에서는 `cp server/.env.example server/.env`를 그대로 사용해도 됩니다. 서버 배포 시 `--host 0.0.0.0` 옵션, HTTPS/WSS를 제공하는 리버스 프록시와 접근 통제 설정이 필요합니다. **비밀키와 SQLite DB는 공개 저장소에 올리지 마세요.** SQLite 저장소는 단일 Uvicorn 프로세스 기반 데모 용도이며, 다중 워커를 사용할 경우 연결 레지스트리/명령 큐를 Redis 등 공유 인프라로 교체해야 합니다.
+## 웹 관리자 콘솔 사용법
 
-`ALLOWED_NAV_HOSTS`에 적힌 도메인만 원격으로 열 수 있습니다. 기본값은 `example.com,developer.chrome.com`입니다. 필요하다면 본인이 관리하는 사이트만 추가하세요.
+1. Cloudtype 서버의 `/` 주소에 접속합니다.
+2. **`ADMIN_API_KEY`**를 입력합니다. 키는 브라우저 메모리에만 저장하며 저장소/확장 프로그램에 포함하면 안 됩니다.
+3. **등록 코드 발급**에서 기기 이름을 입력하여 일회용 코드를 받습니다 (5분 유효).
+4. 학교 관리자가 설치를 허용한 크롬북에서 확장 프로그램을 열고, 미리 입력된 Cloudtype 서버 주소와 기기 이름, 코드를 확인해 **연결 및 원격 제어 동의**를 누릅니다.
+5. 등록되면 **1~100 중 사용되지 않은 랜덤 번호**를 받습니다. 관리자 웹에서 번호를 눌러 해당 기기만 선택합니다.
+6. 탭/창 제어, 브라우저 알림, 상태 조회 등 명령을 내리고 실행 결과를 확인합니다.
+7. 사용자는 확장 프로그램 팝업에서 일시 정지하거나 등록 해제할 수 있고, 관리자도 기기 등록을 폐기할 수 있습니다.
 
-## 2. 확장 프로그램 등록
+**관리형 크롬북**: 학교 IT 관리자의 설치/권한 승인과 네트워크 허용이 필요합니다. 기기별 숫자는 식별자일 뿐이며, 숫자를 안다고 제어할 수는 없습니다. 별도의 기기 토큰과 관리자 키로 인증합니다.
 
-1. Chrome `chrome://extensions` → 개발자 모드 → `extension/` 폴더 로드 (학교 관리형은 관리자 승인 필요)
-2. 관리자 터미널에서 환경변수 `ADMIN_API_KEY`를 서버의 값과 동일하게 설정합니다.
-3. `python scripts/admin_cli.py enroll "테스트 크롬북 A"` 실행 후 발급된 **1회용 코드**를 확인합니다 (5분 유효).
-4. 확장 프로그램 아이콘 → 서버 주소(로컬 테스트 `http://127.0.0.1:8000`, 원격 `https://your-domain`)와 기기 이름·등록 코드 입력 → **연결 및 원격 제어 동의** 클릭.
-5. 사이트 접근 권한 요청이 표시되면 검토 후 허용하세요. 이후 상태가 **ON**으로 보이면 서버 연결 상태입니다. 사용자는 언제든 **일시 정지**할 수 있습니다.
+## API
 
-**주의:** 크롬북의 `127.0.0.1`은 크롬북 자신입니다. 다른 컴퓨터의 서버에는 HTTPS 주소로 접속해야 합니다. 외부 서버는 올바른 인증서를 사용하는 `https://`/`wss://`가 필요합니다. 일반 웹페이지의 개발자 모드가 아니라 `chrome://extensions`의 확장 프로그램 개발자 모드를 말합니다.
+`/api/admin/*` 호출은 `X-Admin-Key` 헤더가 필요합니다. WebSocket 연결에는 기기별 토큰을 별도로 사용합니다.
 
-## 3. 등록된 기기 목록과 개별 제어
+| HTTP | URL | 설명 |
+|---|---|---|
+| POST | `/api/admin/enrollments` | 기기 등록 코드 발급 |
+| POST | `/api/pair` | 사용자가 코드 입력 및 동의 후 기기 등록 |
+| GET | `/api/admin/devices` | 기기 목록 / 접속 상태 |
+| DELETE | `/api/admin/devices/{device_id}` | 특정 기기 등록 폐기 |
+| POST | `/api/admin/devices/{device_id}/commands` | **특정 기기에만** 명령 전달 |
+| GET | `/api/admin/commands/{command_id}` | 명령 수행 결과 확인 |
+| WS | `/ws/device` | 등록된 크롬 확장 프로그램 연결 |
+
+### 원격 제어 기능
+
+- 기기 상태: `get_status` (OS와 탭/창 개수)
+- 탭: `list_tabs`, `open_tab`, `close_tab`, `activate_tab`, `reload_tab`, `duplicate_tab`, `navigate_tab`, `pin_tab`, `mute_tab`, `set_zoom`
+- 창: `list_windows`, `new_window`, `focus_window`, `close_window`
+- 알림: `notify`
+
+`open_tab`, `navigate_tab`, `new_window`에 지정하는 URL은 환경변수 `ALLOWED_NAV_HOSTS`에 명시한 도메인이어야 합니다. 목록 외 도메인, 브라우저 내부 URL 및 임의 코드 명령은 거절됩니다. 탭 목록은 ID, 활성화, 고정, 음소거 정보만 제공하고 URL/제목을 서버로 전송하지 않습니다.
+
+### 터미널에서 기기 제어 (선택)
 
 ```bash
+export SERVER_URL="https://port-0-chrome-remote-extension-iad5e2alq4tgcen.sel4.cloudtype.app"
+export ADMIN_API_KEY="<Cloudtype 관리자 비밀키>"
 python scripts/admin_cli.py devices
+python scripts/admin_cli.py enroll "Chromebook A"
+python scripts/admin_cli.py send 37 open_tab '{"url":"https://example.com/"}'
 ```
 
-출력되는 각 기기의 `device_id`(UUID)를 사용합니다. **명령 대상은 경로에서 지정한 한 기기뿐**입니다.
+## 제약 및 안전
 
-```bash
-# 특정 크롬북에 새 탭 열기
-python scripts/admin_cli.py send DEVICE_ID open_tab '{"url":"https://example.com/"}'
+- 이 버전은 웹 관리자 콘솔에서 명령을 내리는 방식이며, **실시간 화면 스트리밍이나 실제 마우스 커서의 원격 이동은 구현하지 않았습니다.** ChromeOS 전체를 제어하는 도구가 아닙니다.
+- Chrome의 MV3 background service worker는 중단될 수 있어 WebSocket 재연결과 heartbeat를 구현했지만 연결 지속은 보장되지 않습니다.
+- 관리자는 기기/브라우저 권한에 따른 한계를 따라야 합니다. 학교의 기기 관리 정책 차단을 우회하지 않습니다.
+- 비밀번호, 쿠키, 방문 기록, 화면 녹화, 임의 JavaScript 실행 기능은 포함하지 않습니다.
+- 현재는 **단일 FastAPI 프로세스 + SQLite** 예제입니다. 다중 인스턴스로 확장하려면 PostgreSQL과 공유 WebSocket 명령 브로커 등이 필요합니다.
 
-# 지정 기기의 현재 탭 개수 등 확인 (URL/제목은 수집하지 않음)
-python scripts/admin_cli.py send DEVICE_ID get_status
-
-# 기기에 브라우저 알림 표시
-python scripts/admin_cli.py send DEVICE_ID notify '{"title":"안내","message":"테스트 알림입니다."}'
-
-# 위 명령 출력에 나온 command_id 로 실제 결과 확인
-python scripts/admin_cli.py result COMMAND_ID
-
-# 등록 취소 및 인증 차단
-python scripts/admin_cli.py revoke DEVICE_ID
-```
-
-Windows PowerShell에서 JSON 문자열 인용 규칙이 다를 수 있습니다. CLI 명령 대신 아래 HTTP API 및 Swagger UI(`/docs`)를 이용할 수도 있습니다.
-
-| HTTP | 경로 | 용도 |
-|---|---|---|
-| POST | `/api/admin/enrollments` | 1회용 등록 코드 발급 |
-| POST | `/api/pair` | 크롬북 본인의 등록 동의 및 토큰 발급 |
-| GET | `/api/admin/devices` | 기기 목록과 온라인 상태 |
-| DELETE | `/api/admin/devices/{device_id}` | 기기 등록 폐기 |
-| POST | `/api/admin/devices/{device_id}/commands` | 지정 기기에 명령 전달 |
-| GET | `/api/admin/commands/{command_id}` | 명령 실행 결과 조회 |
-| WS | `/ws/device` | 확장 프로그램과 연결 |
-
-`/api/admin/*` 요청에는 `X-Admin-Key: <ADMIN_API_KEY>` 헤더가 필요합니다. 기기 연결은 `device_id`와 별도의 `device_token`으로 인증합니다. 서버는 토큰의 해시만 저장합니다.
-
-## 지원 명령
-
-아래 `action`과 `params`만 허용됩니다. 임의 코드 실행은 지원하지 않습니다.
-
-| action | params 예시 | 기능 |
-|---|---|---|
-| `get_status` | `{}` | OS 종류, 탭·창 개수 |
-| `list_tabs` | `{}` | 탭 ID 및 상태 (URL, 제목 제외) |
-| `open_tab` | `{"url":"https://example.com/"}` | 새 탭 열기 |
-| `close_tab` | `{"tab_id":123}` | 탭 닫기 |
-| `activate_tab` | `{"tab_id":123}` | 탭 활성화 |
-| `reload_tab` | `{"tab_id":123}` | 탭 새로고침 |
-| `duplicate_tab` | `{"tab_id":123}` | 탭 복제 |
-| `navigate_tab` | `{"tab_id":123,"url":"https://example.com/"}` | 탭 이동 |
-| `pin_tab` | `{"tab_id":123,"pinned":true}` | 탭 고정/해제 |
-| `mute_tab` | `{"tab_id":123,"muted":true}` | 탭 음소거/해제 |
-| `set_zoom` | `{"tab_id":123,"zoom":1.25}` | 탭 확대/축소 |
-| `list_windows` | `{}` | 창 ID 및 상태 |
-| `new_window` | `{"url":"https://example.com/"}` | 새 창 열기 |
-| `focus_window` | `{"window_id":1}` | 창 활성화 |
-| `close_window` | `{"window_id":1}` | 창 닫기 |
-| `notify` | `{"title":"안내","message":"테스트"}` | 알림 표시 |
-
-참고: 확장 프로그램 설치·권한·URL 접근은 학교 브라우저 정책의 영향을 받습니다. 기기를 절전하거나 네트워크가 끊기면 즉시 실행되지 않습니다. 서버는 오프라인 기기 명령을 큐에 저장하지 않고 `409`를 반환합니다. 서버의 `sent`는 전달 시도를 뜻하며, 실제 성공 여부는 `result`에서 확인하세요.
-
-## 보안 및 개인정보 보호
-
-- 팝업에서 **직접 등록하고 원격 제어 동의**를 해야 연결됩니다. 일시 정지하거나 등록 해제할 수 있습니다.
-- 관리자·기기 인증은 서로 다른 비밀키를 사용하며, 등록 코드는 일회용·시간제한입니다.
-- 서버 명령은 고정된 기능 목록에 한정되고, URL 열기는 도메인 허용목록을 사용합니다.
-- 방문 기록, 페이지 주소·제목, 쿠키, 비밀번호, 키 입력, 화면 캡처 또는 임의 JavaScript/OS 명령을 전송하지 않습니다.
-- 원격 운영은 HTTPS/WSS 및 학교 관리자 승인 하에서만 하세요. Chrome 확장 프로그램으로 ChromeOS 자체 정책이나 OS 수준 제한을 우회할 수 없습니다.
-
-## 테스트
+## 개발 테스트
 
 ```bash
 pip install pytest httpx
-pytest -q
+python -m pytest -q
+node --check web/app.js
 node --check extension/background.js
 node --check extension/popup.js
 ```
 
-Chrome 116 이상 WebSocket 서비스 워커 지원: https://developer.chrome.com/docs/extensions/how-to/web-platform/websockets
-Chrome 확장 프로그램 권한: https://developer.chrome.com/docs/extensions/develop/concepts/declare-permissions
+Cloudtype FastAPI 배포 문서: https://docs.cloudtype.dev/ko/developers/fastapi

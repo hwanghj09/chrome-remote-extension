@@ -15,9 +15,12 @@ from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-load_dotenv(Path(__file__).with_name('.env'))
+ROOT = Path(__file__).resolve().parent
+load_dotenv(ROOT / '.env')
 
 # The API never accepts arbitrary JavaScript, shell commands, or device data collection.
 COMMAND_PARAMS = {
@@ -61,7 +64,7 @@ class CommandRequest(BaseModel):
 
 def create_app(*, admin_key: str | None = None, database_path: str | None = None) -> FastAPI:
     admin_secret = admin_key if admin_key is not None else os.getenv('ADMIN_API_KEY', '')
-    db_path = Path(database_path or os.getenv('DATABASE_PATH', 'server/devices.db'))
+    db_path = Path(database_path or os.getenv('DATABASE_PATH', 'data/devices.db'))
     allowed_hosts = {
         host.strip().lower()
         for host in os.getenv('ALLOWED_NAV_HOSTS', 'example.com').split(',')
@@ -93,6 +96,9 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
                     name TEXT NOT NULL,
                     expires_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS assigned_ids (
+                    device_id TEXT PRIMARY KEY
+                );
                 CREATE TABLE IF NOT EXISTS commands (
                     command_id TEXT PRIMARY KEY,
                     device_id TEXT NOT NULL,
@@ -110,6 +116,18 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
                 pass
 
     app = FastAPI(title='Chrome Remote Controller', lifespan=lifespan)
+    app.mount('/static', StaticFiles(directory=ROOT / 'web'), name='static')
+
+    @app.get('/', include_in_schema=False)
+    def dashboard():
+        response = FileResponse(ROOT / 'web' / 'index.html')
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Content-Security-Policy'] = ("default-src 'none'; script-src 'self'; style-src 'self'; "
+                                                       "connect-src 'self'; img-src 'self'; base-uri 'none'; "
+                                                       "frame-ancestors 'none'; form-action 'none'")
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        return response
 
     def require_admin(x_admin_key: str | None = Header(default=None)):
         if not x_admin_key or not secrets.compare_digest(x_admin_key, admin_secret):
@@ -158,15 +176,29 @@ def create_app(*, admin_key: str | None = None, database_path: str | None = None
     @app.post('/api/pair')
     def pair_device(payload: PairRequest):
         with db() as conn:
+            conn.execute('BEGIN IMMEDIATE')  # serialize concurrent allocations across requests
             # Single-use pairing code; the DELETE and INSERT share one transaction.
             # Atomic one-time consumption prevents code reuse under concurrent requests.
             consumed = conn.execute('DELETE FROM enrollments WHERE code_hash=? AND expires_at>=?',
                                     (digest(payload.code), int(time.time()))).rowcount
             if not consumed:
                 raise HTTPException(403, 'Invalid or expired pairing code')
-            device_id = str(uuid.uuid4())
+            # Keep IDs small but unique, even across revocations. The DB is the authority.
+            # The write transaction is exclusive during allocation to prevent collisions.
+            already_assigned = {
+                row['device_id'] for row in conn.execute('SELECT device_id FROM assigned_ids')
+            }
+            # Also respect numeric IDs created before this table existed.
+            already_assigned.update(
+                row['device_id'] for row in conn.execute('SELECT device_id FROM devices')
+            )
+            available = [str(n) for n in range(1, 101) if str(n) not in already_assigned]
+            if not available:
+                raise HTTPException(409, 'All 100 device IDs have been assigned')
+            device_id = secrets.choice(available)
             token = secrets.token_urlsafe(32)
             now = int(time.time())
+            conn.execute('INSERT INTO assigned_ids (device_id) VALUES (?)', (device_id,))
             conn.execute('INSERT INTO devices VALUES (?, ?, ?, ?, ?)',
                          (device_id, payload.device_name, digest(token), now, now))
         return {'device_id': device_id, 'device_token': token}

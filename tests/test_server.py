@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from server.main import create_app
+from main import create_app
 
 ADMIN_KEY = 'my-local-admin-key-please-replace-me'
 HEADERS = {'X-Admin-Key': ADMIN_KEY}
@@ -61,3 +61,41 @@ def test_ws_invalid_token(tmp_path):
                 assert e.code == 1008
             else:
                 raise AssertionError('Expected forbidden socket close')
+
+
+def test_dashboard_and_auth(tmp_path):
+    app = create_app(admin_key=ADMIN_KEY, database_path=str(tmp_path / 'dashboard.sqlite'))
+    with TestClient(app) as client:
+        page = client.get('/')
+        assert page.status_code == 200
+        assert 'Chrome Remote' in page.text
+        assert "frame-ancestors 'none'" in page.headers['Content-Security-Policy']
+        assert 'no-store' in page.headers['Cache-Control']
+        assert client.get('/static/app.js').status_code == 200
+        assert client.get('/api/admin/devices').status_code == 401
+        assert client.get('/api/admin/devices', headers=HEADERS).json() == []
+
+
+def test_numeric_ids_no_duplicates_or_reuse(tmp_path):
+    app = create_app(admin_key=ADMIN_KEY, database_path=str(tmp_path / 'pool.sqlite'))
+    with TestClient(app) as client:
+        assigned = set()
+        for index in range(100):
+            enroll = client.post('/api/admin/enrollments', headers=HEADERS,
+                                 json={'name': f'device {index}'}).json()
+            paired = client.post('/api/pair', json={'code': enroll['pairing_code'],
+                                                    'device_name': f'chromebook {index}'})
+            assert paired.status_code == 200, paired.text
+            device_id = paired.json()['device_id']
+            assert device_id.isdecimal()
+            assert 1 <= int(device_id) <= 100
+            assert device_id not in assigned
+            assigned.add(device_id)
+
+        device = next(iter(assigned))
+        assert client.delete(f'/api/admin/devices/{device}', headers=HEADERS).status_code == 200
+        enroll = client.post('/api/admin/enrollments', headers=HEADERS,
+                             json={'name': 'extra'}).json()
+        last = client.post('/api/pair', json={'code': enroll['pairing_code'], 'device_name': 'extra'})
+        assert last.status_code == 409
+        assert len(assigned) == 100

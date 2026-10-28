@@ -2,6 +2,6 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .venv/
-server/.env
-server/*.db
-server/*.db-*
+.env
+*.db
+*.db-*
